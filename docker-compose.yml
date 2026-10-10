@@ -1,0 +1,11 @@
+services:
+  api:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - JWT_SECRET=change_this_in_production
+      - PORT=3000
+      - DB_DIR=/app/data
+    volumes:
+      - ./data:/app/data

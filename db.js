@@ -1,5 +1,10 @@
 const Database = require('better-sqlite3');
-const db = new Database('events.db');
+const fs = require('fs');
+const path = require('path');
+
+const dir = process.env.DB_DIR || __dirname;
+fs.mkdirSync(dir, { recursive: true });
+const db = new Database(path.join(dir, 'events.db'));
 
 db.pragma('foreign_keys = ON');
 
