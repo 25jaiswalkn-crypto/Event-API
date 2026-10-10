@@ -1,0 +1,21 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f5f6fa; color: #222; }
+.container { max-width: 900px; margin: 0 auto; padding: 20px; }
+nav { background: #1a73e8; color: white; padding: 12px 20px; display: flex; gap: 14px; align-items: center; flex-wrap: wrap; }
+nav .brand { font-weight: bold; font-size: 18px; margin-right: auto; }
+nav button { background: transparent; color: white; border: 1px solid white; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+nav button.active { background: white; color: #1a73e8; }
+.card { background: white; border: 1px solid #ddd; border-radius: 10px; padding: 16px; margin-bottom: 14px; }
+.card h3 { margin: 0 0 6px; }
+.muted { color: #666; font-size: 14px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+input, select, textarea { padding: 8px; border: 1px solid #bbb; border-radius: 6px; font-size: 14px; }
+.form { display: flex; flex-direction: column; gap: 10px; max-width: 400px; }
+button.btn { background: #1a73e8; color: white; border: none; padding: 8px 14px; border-radius: 6px; cursor: pointer; font-size: 14px; }
+button.btn.red { background: #d93025; }
+button.btn.gray { background: #777; }
+button.btn:disabled { background: #aaa; cursor: not-allowed; }
+.error { color: #d93025; margin: 8px 0; }
+.success { color: #188038; margin: 8px 0; }
+.badge { display: inline-block; background: #e8f0fe; color: #1a73e8; padding: 2px 8px; border-radius: 12px; font-size: 12px; }
+.badge.full { background: #fce8e6; color: #d93025; }
