@@ -1,8 +1,8 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
 const db = require('../db');
+const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -69,61 +69,50 @@ router.post('/login', (req, res) => {
 });
 
 // POST /api/auth/bootstrap-admin
-// Promotes one existing account, and only while no admin exists.
-// Requires the private ADMIN_BOOTSTRAP_TOKEN environment variable.
-router.post('/bootstrap-admin', (req, res) => {
-  const expected = process.env.ADMIN_BOOTSTRAP_TOKEN || '';
-  const provided = req.get('x-admin-bootstrap-token') || '';
-  const expectedBuffer = Buffer.from(expected);
-  const providedBuffer = Buffer.from(provided);
+// A logged-in account matching ADMIN_EMAIL can become the first admin.
+// This endpoint stops working once any admin exists.
+router.post('/bootstrap-admin', authenticate, (req, res) => {
+  const allowedEmail = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
 
-  if (
-    !expected ||
-    expectedBuffer.length !== providedBuffer.length ||
-    !crypto.timingSafeEqual(expectedBuffer, providedBuffer)
-  ) {
-    return res.status(403).json({ error: 'Invalid setup token' });
+  if (!allowedEmail) {
+    return res.status(503).json({ error: 'Admin setup is not configured' });
   }
 
-  const email =
-    typeof req.body?.email === 'string'
-      ? req.body.email.trim()
-      : '';
+  const result = db.transaction(() => {
+    const user = db
+      .prepare('SELECT id, email, role FROM users WHERE id = ?')
+      .get(req.user.id);
 
-  if (!email) {
-    return res.status(400).json({ error: 'email is required' });
-  }
+    if (!user) {
+      return { status: 401, body: { error: 'Account not found' } };
+    }
 
-  const promoteFirstAdmin = db.transaction((accountEmail) => {
+    if (user.email.trim().toLowerCase() !== allowedEmail) {
+      return { status: 403, body: { error: 'This account is not allowed to become admin' } };
+    }
+
     const existingAdmin = db
       .prepare("SELECT id FROM users WHERE role = 'admin' LIMIT 1")
       .get();
 
     if (existingAdmin) {
-      return {
-        status: 409,
-        body: { error: 'An admin already exists' },
-      };
+      return { status: 409, body: { error: 'An admin already exists' } };
     }
 
-    const result = db
-      .prepare("UPDATE users SET role = 'admin' WHERE email = ?")
-      .run(accountEmail);
+    const updated = db
+      .prepare("UPDATE users SET role = 'admin' WHERE id = ? AND role = 'user'")
+      .run(user.id);
 
-    if (result.changes !== 1) {
-      return {
-        status: 404,
-        body: { error: 'Sign up with this email first' },
-      };
+    if (updated.changes !== 1) {
+      return { status: 409, body: { error: 'Account could not be promoted' } };
     }
 
     return {
       status: 200,
       body: { message: 'Admin enabled. Log out and log back in.' },
     };
-  });
+  })();
 
-  const result = promoteFirstAdmin(email);
   return res.status(result.status).json(result.body);
 });
 
