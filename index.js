@@ -2,16 +2,18 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 require('./db');
+const { apiLimiter, authLimiter } = require('./middleware/rateLimit');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use('/api', apiLimiter);
 
 app.get('/', (req, res) => {
   res.json({ message: 'Event API is running!' });
 });
 
-app.use('/api/auth', require('./routes/auth'));
+app.use('/api/auth', authLimiter, require('./routes/auth'));
 app.use('/api/events', require('./routes/event'));
 app.use('/api', require('./routes/registration'));
 
