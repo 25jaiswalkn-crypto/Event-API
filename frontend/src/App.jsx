@@ -34,6 +34,8 @@ async function api(path, { method = 'GET', body, token } = {}) {
 
 const pad = (n) => String(n).padStart(2, '0');
 const isPast = (value) => new Date(value) < new Date();
+const byDateAsc = (a, b) => new Date(a.date_time) - new Date(b.date_time);
+const byDateDesc = (a, b) => new Date(b.date_time) - new Date(a.date_time);
 
 function readUser() {
   try {
@@ -60,6 +62,59 @@ function when(value) {
   });
 }
 
+function fullDate(value) {
+  return new Date(value).toLocaleString('en', { dateStyle: 'full', timeStyle: 'short' });
+}
+
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+function relative(value) {
+  const d = new Date(value);
+  const now = new Date();
+  if (d < now) return 'Ended';
+  const days = Math.round((startOfDay(d) - startOfDay(now)) / 86400000);
+  if (days === 0) return 'Today';
+  if (days === 1) return 'Tomorrow';
+  if (days < 14) return `In ${days} days`;
+  if (days < 60) return `In ${Math.round(days / 7)} weeks`;
+  return `In ${Math.round(days / 30)} months`;
+}
+
+// The club's own palette (same colours as the GDG site navigation).
+const PALETTE = ['var(--blue)', 'var(--green)', 'var(--yellow)', 'var(--purple)', 'var(--coral)'];
+function catColor(name) {
+  let sum = 0;
+  for (const ch of name.toLowerCase()) sum += ch.charCodeAt(0);
+  return PALETTE[sum % PALETTE.length];
+}
+// An event takes its category's colour; uncategorised events get one from their title.
+const eventColor = (ev) => catColor(ev.category || ev.title || 'event');
+
+// Everything the UI needs to know about one event for the current user.
+function eventState(ev, registered, busy) {
+  const left = ev.capacity - ev.registered_count;
+  const full = left <= 0;
+  const past = isPast(ev.date_time);
+  const low = !full && !past && left <= Math.max(1, Math.ceil(ev.capacity * 0.2));
+
+  let seatText = `${left} left`;
+  let seatClass = 'big';
+  if (past) { seatText = 'Ended'; seatClass = 'big ended'; }
+  else if (full) { seatText = 'Sold out'; seatClass = 'big full'; }
+  else if (low) seatClass = 'big low';
+
+  let label = 'Register';
+  let btnClass = 'btn';
+  let disabled = false;
+  if (busy) { label = 'Saving…'; disabled = true; }
+  else if (registered && past) { label = 'Registered'; disabled = true; }
+  else if (registered) { label = 'Leave'; btnClass = 'btn red'; }
+  else if (past) { label = 'Ended'; disabled = true; }
+  else if (full) { label = 'Full'; disabled = true; }
+
+  return { left, full, past, low, seatText, seatClass, label, btnClass, disabled };
+}
+
 function useDebounced(value, ms = 300) {
   const [debounced, setDebounced] = useState(value);
   useEffect(() => {
@@ -67,6 +122,60 @@ function useDebounced(value, ms = 300) {
     return () => clearTimeout(t);
   }, [value, ms]);
   return debounced;
+}
+
+/* ---------- Brand pieces ---------- */
+
+// The GDG code-brackets mark, drawn from four rounded bars in Google's colours.
+// To use the official artwork instead, replace the four <path> elements with it.
+function GdgLogo({ size = 28 }) {
+  return (
+    <svg
+      className="gdg-logo"
+      viewBox="8 9 57 38"
+      width={size * 1.5}
+      height={size}
+      fill="none"
+      strokeWidth="7"
+      strokeLinecap="round"
+      role="img"
+      aria-label="GDG"
+    >
+      <path d="M29 13L12 25" stroke="#ea4335" />
+      <path d="M12 25L29 43" stroke="#4285f4" />
+      <path d="M43 13L61 27" stroke="#34a853" />
+      <path d="M61 27L43 43" stroke="#fbbc04" />
+    </svg>
+  );
+}
+
+// Google-style four-dot loader.
+function Loading({ label = 'Loading' }) {
+  return (
+    <div className="loading" role="status">
+      <span className="dots" aria-hidden="true"><i /><i /><i /><i /></span>
+      <span>{label}</span>
+    </div>
+  );
+}
+
+// Seats drawn as a strip of blocks: filled blocks are taken seats.
+// Colour comes from the surrounding element's --c.
+function SeatStrip({ ev }) {
+  const capacity = Math.max(ev.capacity, 1);
+  const total = Math.min(capacity, 12);
+  const full = ev.registered_count >= capacity;
+  let filled = Math.round((ev.registered_count / capacity) * total);
+  if (ev.registered_count > 0 && filled === 0) filled = 1;
+  if (!full && filled >= total) filled = total - 1;
+  if (full) filled = total;
+  return (
+    <div className="strip" aria-hidden="true">
+      {Array.from({ length: total }, (_, i) => (
+        <span key={i} className={i < filled ? 'on' : ''} />
+      ))}
+    </div>
+  );
 }
 
 /* ---------- Small shared components ---------- */
@@ -81,6 +190,15 @@ function DateCol({ value }) {
   );
 }
 
+function CatChip({ name }) {
+  return (
+    <span className="catchip">
+      <i className="dot" style={{ '--c': catColor(name) }} />
+      {name}
+    </span>
+  );
+}
+
 function Field({ label, children }) {
   return (
     <label className="field">
@@ -90,16 +208,11 @@ function Field({ label, children }) {
   );
 }
 
-function SkeletonRows({ n = 3 }) {
+function Empty({ children }) {
   return (
-    <div className="list" aria-busy="true">
-      <span className="sr-only" role="status">Loading</span>
-      {Array.from({ length: n }, (_, i) => (
-        <div className="skel-row" key={i} aria-hidden="true">
-          <div className="skel" style={{ width: '38%', height: 26 }} />
-          <div className="skel" style={{ width: '22%', height: 14, marginTop: 12 }} />
-        </div>
-      ))}
+    <div className="empty">
+      <GdgLogo size={36} />
+      {children}
     </div>
   );
 }
@@ -172,9 +285,10 @@ export default function App() {
     [logout]
   );
 
-  const tab = (name, label, extra = '') => (
+  // Navigation buttons use the same raised, colourful style as the GDG site.
+  const tab = (name, label, color) => (
     <button
-      className={`${page === name ? 'active' : ''} ${extra}`.trim()}
+      className={`pill c-${color}${page === name ? ' active' : ''}`}
       aria-current={page === name ? 'page' : undefined}
       onClick={() => go(name)}
     >
@@ -187,10 +301,10 @@ export default function App() {
       <a className="skip" href="#main">Skip to content</a>
       <nav>
         <button className="brand" onClick={() => go('events')}>
-          <span className="mark" /> EventHub
+          <GdgLogo size={28} /> EventHub
         </button>
         <button
-          className="menu-toggle"
+          className="pill c-blue menu-toggle"
           aria-expanded={menuOpen}
           aria-controls="nav-links"
           onClick={() => setMenuOpen((o) => !o)}
@@ -198,13 +312,13 @@ export default function App() {
           {menuOpen ? 'Close' : 'Menu'}
         </button>
         <div id="nav-links" className={`links ${menuOpen ? 'open' : ''}`}>
-          {tab('events', 'Events')}
-          {user && tab('mine', 'My registrations')}
-          {user?.role === 'admin' && tab('admin', 'Admin')}
-          {!user && tab('login', 'Log in')}
-          {!user && tab('signup', 'Sign up', 'cta')}
+          {tab('events', 'Events', 'yellow')}
+          {user && tab('mine', 'My registrations', 'green')}
+          {user?.role === 'admin' && tab('admin', 'Admin', 'purple')}
+          {!user && tab('login', 'Log in', 'blue')}
+          {!user && tab('signup', 'Sign up', 'coral')}
           {user && <span className="hello">{user.name}</span>}
-          {user && <button onClick={() => logout()}>Log out</button>}
+          {user && <button className="pill c-white" onClick={() => logout()}>Log out</button>}
         </div>
       </nav>
 
@@ -221,7 +335,7 @@ export default function App() {
       </main>
 
       <footer>
-        <span>EventHub</span>
+        <span className="foot-brand"><GdgLogo size={22} /> EventHub</span>
         <span>GDG RBU Recruitment 2026-27</span>
       </footer>
 
@@ -264,7 +378,12 @@ function AuthForm({ mode, onDone, switchTo }) {
 
   return (
     <div className="auth-wrap">
-      <form className="form-block form" onSubmit={submit} noValidate>
+      <form
+        className="form-block form"
+        onSubmit={submit}
+        noValidate
+        style={{ '--c': isLogin ? 'var(--blue)' : 'var(--yellow)' }}
+      >
         <div className="label">{isLogin ? 'Account / Log in' : 'Account / Sign up'}</div>
         <h2>{isLogin ? 'Welcome back.' : 'Create your account.'}</h2>
         {!isLogin && (
@@ -296,11 +415,99 @@ function AuthForm({ mode, onDone, switchTo }) {
           </button>
         </p>
       </form>
+
+      {isLogin ? (
+        <aside className="auth-side">
+          <GdgLogo size={40} />
+          <h2>Your seats<br />are waiting.</h2>
+          <ul>
+            <li>See the events you've registered for.</li>
+            <li>Leave a seat if your plans change.</li>
+            <li>Register for what's coming next.</li>
+          </ul>
+        </aside>
+      ) : (
+        <aside className="auth-side signup">
+          <GdgLogo size={40} />
+          <h2>Sign up once.<br />Reserve any seat.</h2>
+          <ol>
+            <li>Create your account with a name and email.</li>
+            <li>Pick a workshop, hackathon or meetup.</li>
+            <li>Reserve your seat in one click.</li>
+          </ol>
+        </aside>
+      )}
     </div>
   );
 }
 
 /* ---------- Events ---------- */
+
+function NextCard({ ev, registered, busy, onToggle }) {
+  const s = eventState(ev, registered, busy);
+  const d = new Date(ev.date_time);
+  return (
+    <aside className="next" style={{ '--c': eventColor(ev) }} aria-label="Next event">
+      <div className="next-top">
+        <span className="label">Next up</span>
+        <span className="label">{relative(ev.date_time)}</span>
+      </div>
+      <div className="next-body">
+        <div className="next-date">
+          <span className="next-day">{pad(d.getDate())}</span>
+          <span className="next-mon">{d.toLocaleString('en', { month: 'long' })}</span>
+        </div>
+        <h2>{ev.title}</h2>
+        <div className="next-meta">{when(ev.date_time)} · {ev.venue}</div>
+        <div className="next-seats">{s.full ? 'Sold out' : `${s.left} of ${ev.capacity} seats left`}</div>
+        <SeatStrip ev={ev} />
+        <button className={s.btnClass} disabled={s.disabled} onClick={() => onToggle(registered)}>
+          {s.label}
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+function EventRow({ ev, registered, busy, open, onOpen, onToggle }) {
+  const s = eventState(ev, registered, busy);
+  return (
+    <div className={`row-item${s.past ? ' past' : ''}`} style={{ '--c': eventColor(ev) }}>
+      <DateCol value={ev.date_time} />
+      <div className="main">
+        <h3>
+          {ev.title}
+          {registered && <span className="tag">Registered</span>}
+        </h3>
+        <div className="muted">{when(ev.date_time)} · {ev.venue}</div>
+      </div>
+      <div className="cat">{ev.category && <CatChip name={ev.category} />}</div>
+      <div className="seats">
+        <div className={s.seatClass}>{s.seatText}</div>
+        <div className="small">{ev.registered_count} of {ev.capacity} seats taken</div>
+        <SeatStrip ev={ev} />
+      </div>
+      <div className="actions">
+        <button className="btn gray" aria-expanded={open} onClick={onOpen}>
+          {open ? 'Close' : 'Details'}
+        </button>
+        <button className={s.btnClass} disabled={s.disabled} onClick={() => onToggle(registered)}>
+          {s.label}
+        </button>
+      </div>
+      {open && (
+        <div className="panel">
+          <p>{ev.description || 'No description yet.'}</p>
+          <dl className="facts">
+            <div><dt>When</dt><dd>{fullDate(ev.date_time)}</dd></div>
+            <div><dt>Where</dt><dd>{ev.venue}</dd></div>
+            <div><dt>Seats</dt><dd>{Math.max(0, s.left)} of {ev.capacity} left</dd></div>
+          </dl>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function EventsPage({ token, user, goLogin, notify, fail }) {
   const [events, setEvents] = useState(null); // null = still loading
@@ -327,7 +534,7 @@ function EventsPage({ token, user, goLogin, notify, fail }) {
         if (cancelled) return;
         setEvents(list);
         setError('');
-        // Remember every category seen so the dropdown doesn't shrink while filtering.
+        // Remember every category seen so the chips don't vanish while filtering.
         setCategories((prev) => [...new Set([...prev, ...list.map((e) => e.category).filter(Boolean)])].sort());
       } catch (e) {
         if (cancelled) return;
@@ -374,21 +581,49 @@ function EventsPage({ token, user, goLogin, notify, fail }) {
   }
 
   const filtering = Boolean(q.trim() || category);
+  const upcoming = (events || []).filter((e) => !isPast(e.date_time)).sort(byDateAsc);
+  const past = (events || []).filter((e) => isPast(e.date_time)).sort(byDateDesc);
+  const featured = !filtering ? upcoming[0] : null;
+
+  const rowFor = (ev) => (
+    <EventRow
+      key={ev.id}
+      ev={ev}
+      registered={mine.includes(ev.id)}
+      busy={busyId === ev.id}
+      open={openId === ev.id}
+      onOpen={() => setOpenId(openId === ev.id ? null : ev.id)}
+      onToggle={(registered) => toggle(ev, registered)}
+    />
+  );
 
   return (
     <>
-      <div className="hero">
+      <section className="hero">
         <div className="hero-top">
-          <span className="label">Campus events</span>
+          <span className="label">GDG campus events</span>
           <span className="label">{events ? `${pad(events.length)} listed` : 'Loading'}</span>
         </div>
-        <h1>
-          Events<span>.</span>
-        </h1>
-        <div className="hero-bottom">
-          <p>Workshops, hackathons and meetups. Browse the list, pick one and reserve your seat.</p>
+        <div className={`hero-grid${featured ? '' : ' single'}`}>
+          <div className="hero-copy">
+            {/* Headline written as a code tag: only a developer club would. */}
+            <h1 aria-label="Events">
+              <span className="word" aria-hidden="true">
+                <span className="br b1">&lt;</span>Events<span className="br b2">/</span><span className="br b3">&gt;</span>
+              </span>
+            </h1>
+            <p>Workshops, hackathons and meetups. Browse the list, pick one and reserve your seat.</p>
+          </div>
+          {featured && (
+            <NextCard
+              ev={featured}
+              registered={mine.includes(featured.id)}
+              busy={busyId === featured.id}
+              onToggle={(registered) => toggle(featured, registered)}
+            />
+          )}
         </div>
-      </div>
+      </section>
 
       <div className="filters">
         <input
@@ -398,12 +633,29 @@ function EventsPage({ token, user, goLogin, notify, fail }) {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <select aria-label="Filter by category" value={category} onChange={(e) => setCategory(e.target.value)}>
-          <option value="">All categories</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+        {categories.length > 0 && (
+          <div className="chips" role="group" aria-label="Filter by category">
+            <button
+              className={`chip all${category === '' ? ' on' : ''}`}
+              aria-pressed={category === ''}
+              onClick={() => setCategory('')}
+            >
+              All
+            </button>
+            {categories.map((c) => (
+              <button
+                key={c}
+                className={`chip${category === c ? ' on' : ''}`}
+                style={{ '--c': catColor(c) }}
+                aria-pressed={category === c}
+                onClick={() => setCategory(c)}
+              >
+                <i className="dot" />
+                {c}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -413,10 +665,10 @@ function EventsPage({ token, user, goLogin, notify, fail }) {
         </div>
       )}
 
-      {events === null && <SkeletonRows />}
+      {events === null && <Loading label="Loading events" />}
 
       {events && events.length === 0 && !error && (
-        <div className="empty">
+        <Empty>
           {filtering ? 'No events match your search.' : 'No events yet. Check back soon.'}
           {filtering && (
             <div style={{ marginTop: 16 }}>
@@ -425,72 +677,19 @@ function EventsPage({ token, user, goLogin, notify, fail }) {
               </button>
             </div>
           )}
-        </div>
+        </Empty>
       )}
 
-      {events && events.length > 0 && (
-        <div className="list">
-          {events.map((ev, i) => {
-            const registered = mine.includes(ev.id);
-            const left = ev.capacity - ev.registered_count;
-            const full = left <= 0;
-            const past = isPast(ev.date_time);
-            const low = !full && !past && left <= Math.max(1, Math.ceil(ev.capacity * 0.2));
-            const pct = ev.capacity > 0 ? Math.min(100, (ev.registered_count / ev.capacity) * 100) : 100;
-            const busy = busyId === ev.id;
-            const open = openId === ev.id;
+      {upcoming.length > 0 && <div className="list">{upcoming.map(rowFor)}</div>}
 
-            let seatText = `${left} left`;
-            let seatClass = 'big';
-            if (past) { seatText = 'Ended'; seatClass = 'big ended'; }
-            else if (full) { seatText = 'Sold out'; seatClass = 'big full'; }
-            else if (low) seatClass = 'big low';
-
-            let label = 'Register';
-            let btnClass = 'btn';
-            let disabled = false;
-            if (busy) { label = 'Saving…'; disabled = true; }
-            else if (registered && past) { label = 'Registered'; disabled = true; }
-            else if (registered) { label = 'Leave'; btnClass = 'btn red'; }
-            else if (past) { label = 'Ended'; disabled = true; }
-            else if (full) { label = 'Full'; disabled = true; }
-
-            return (
-              <div className={`row-item${past ? ' past' : ''}`} key={ev.id}>
-                <div className="idx">{pad(i + 1)}</div>
-                <DateCol value={ev.date_time} />
-                <div className="main">
-                  <h3>
-                    {ev.title}
-                    {registered && <span className="tag">Registered</span>}
-                  </h3>
-                  <div className="muted">{when(ev.date_time)} · {ev.venue}</div>
-                  {open && <p className="desc">{ev.description || 'No description yet.'}</p>}
-                </div>
-                <div className={ev.category ? 'cat' : 'cat none'}>{ev.category || '—'}</div>
-                <div className="seats">
-                  <div className={seatClass}>{seatText}</div>
-                  <div className="small">{ev.registered_count} of {ev.capacity} seats taken</div>
-                  <div className={full || low ? 'bar full' : 'bar'}>
-                    <div style={{ width: `${pct}%` }} />
-                  </div>
-                </div>
-                <div className="actions">
-                  <button
-                    className="btn gray"
-                    aria-expanded={open}
-                    onClick={() => setOpenId(open ? null : ev.id)}
-                  >
-                    {open ? 'Close' : 'Details'}
-                  </button>
-                  <button className={btnClass} disabled={disabled} onClick={() => toggle(ev, registered)}>
-                    {label}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {past.length > 0 && (
+        <>
+          <div className="divider">
+            <span className="label">Past events</span>
+            <span className="label">{pad(past.length)}</span>
+          </div>
+          <div className="list">{past.map(rowFor)}</div>
+        </>
       )}
     </>
   );
@@ -534,31 +733,34 @@ function MyRegistrations({ token, notify, fail, goEvents }) {
 
   return (
     <>
-      <h1 className="page-title">My<br />registrations<span style={{ color: 'var(--red)' }}>.</span></h1>
+      <h1 className="page-title">My<br />registrations<span className="accent">.</span></h1>
       {error && <div className="error" role="alert">{error}</div>}
-      {rows === null && <SkeletonRows n={2} />}
+      {rows === null && <Loading label="Loading your registrations" />}
       {rows && rows.length === 0 && !error && (
-        <div className="empty">
+        <Empty>
           You haven't registered for any events yet.
           <div style={{ marginTop: 16 }}>
             <button className="btn" onClick={goEvents}>Browse events</button>
           </div>
-        </div>
+        </Empty>
       )}
       {rows && rows.length > 0 && (
         <div className="list">
-          {rows.map((r, i) => {
+          {rows.map((r) => {
             const past = isPast(r.date_time);
             return (
-              <div className={`row-item simple${past ? ' past' : ''}`} key={r.registration_id}>
-                <div className="idx">{pad(i + 1)}</div>
+              <div
+                className={`row-item simple${past ? ' past' : ''}`}
+                key={r.registration_id}
+                style={{ '--c': eventColor(r) }}
+              >
                 <DateCol value={r.date_time} />
                 <div className="main">
                   <h3>{r.title}</h3>
-                  <div className="muted">{when(r.date_time)} · {r.venue}</div>
+                  <div className="muted">{when(r.date_time)} · {r.venue} · {relative(r.date_time)}</div>
                   {r.description && <p className="desc">{r.description}</p>}
                 </div>
-                <div className={r.category ? 'cat' : 'cat none'}>{r.category || '—'}</div>
+                <div className="cat">{r.category && <CatChip name={r.category} />}</div>
                 <div className="actions">
                   <button
                     className="btn red"
@@ -677,8 +879,13 @@ function AdminPage({ token, notify, fail }) {
 
   return (
     <>
-      <h1 className="page-title">Manage<br />events<span style={{ color: 'var(--red)' }}>.</span></h1>
-      <form className="form-block form admin-form" onSubmit={save} noValidate>
+      <h1 className="page-title">Manage<br />events<span className="accent">.</span></h1>
+      <form
+        className="form-block form admin-form"
+        onSubmit={save}
+        noValidate
+        style={{ '--c': 'var(--purple)' }}
+      >
         <div className="label">{editId ? 'Edit event' : 'New event'}</div>
         <Field label="Title">
           <input value={form.title} onChange={set('title')} />
@@ -706,7 +913,7 @@ function AdminPage({ token, notify, fail }) {
           </Field>
         </div>
         {error && <div className="error" role="alert" style={{ margin: 0 }}>{error}</div>}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 12 }}>
           <button className="btn" type="submit" disabled={saving}>
             {saving ? 'Saving…' : editId ? 'Save changes' : 'Create event'}
           </button>
@@ -718,24 +925,22 @@ function AdminPage({ token, notify, fail }) {
         </div>
       </form>
 
-      {events === null && <SkeletonRows n={2} />}
-      {events && events.length === 0 && !error && (
-        <div className="empty">No events yet. Create the first one above.</div>
-      )}
+      {events === null && <Loading label="Loading events" />}
+      {events && events.length === 0 && !error && <Empty>No events yet. Create the first one above.</Empty>}
       {events && events.length > 0 && (
-        <div className="list" style={{ borderTop: '2px solid var(--text)' }}>
-          {events.map((ev, i) => (
+        <div className="list" style={{ borderTop: '2px solid var(--ink)' }}>
+          {events.map((ev) => (
             <div
               className={`row-item${isPast(ev.date_time) ? ' past' : ''}${editId === ev.id ? ' editing' : ''}`}
               key={ev.id}
+              style={{ '--c': eventColor(ev) }}
             >
-              <div className="idx">{pad(i + 1)}</div>
               <DateCol value={ev.date_time} />
               <div className="main">
                 <h3>{ev.title}</h3>
                 <div className="muted">{when(ev.date_time)} · {ev.venue}</div>
               </div>
-              <div className={ev.category ? 'cat' : 'cat none'}>{ev.category || '—'}</div>
+              <div className="cat">{ev.category && <CatChip name={ev.category} />}</div>
               <div className="seats">
                 <div className="big">{ev.registered_count} / {ev.capacity}</div>
                 <div className="small">registered</div>
