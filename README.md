@@ -9,7 +9,6 @@ Includes a React frontend. Built for the GDG RBU 2026-27 Backend Web Developer r
 |---|---|
 | Frontend (Vercel) | https://event-api-two.vercel.app/ |
 | Backend API (Render) | https://event-api-qvbb.onrender.com |
-| API health check | https://event-api-qvbb.onrender.com/ |
 
 > The backend runs on Render's free tier, so the first request after a period of inactivity can take
 > 30-60 seconds while the service wakes up. Please wait for it and retry.
