@@ -123,7 +123,7 @@ nav .hello { font-size: 15px; font-weight: 600; color: var(--muted); padding: 0 
 .hero { padding: 24px 0 52px; }
 .hero-top { display: flex; justify-content: space-between; margin-bottom: 28px; }
 .hero-grid {
-  display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 56px; align-items: end;
+  display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 56px; align-items: start;
 }
 .hero-grid.single { grid-template-columns: minmax(0, 1fr); }
 .hero h1 {
