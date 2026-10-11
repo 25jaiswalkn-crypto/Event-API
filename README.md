@@ -1,194 +1,213 @@
 # Event Management & Registration API
 
-A RESTful API where users browse events and register for them, and admins manage events.
-Includes a React frontend. Built for the GDG RBU 2026-27 Backend Web Developer recruitment task.
+A full-stack event management and registration app built for the GDG RBU 2026–27 Backend Web Developer recruitment task. Visitors can create accounts, browse events, and register. Administrators can manage events and see who registered for each event.
 
 ## Live Demo
 
-| | URL |
+| Part | URL |
 |---|---|
 | Frontend (Vercel) | https://event-api-two.vercel.app/ |
-| Backend API (Render) | https://event-api-qvbb.onrender.com |
+| Backend API (Render ) | https://event-api-qvbb.onrender.com |
+| Backend and database health | https://event-api-qvbb.onrender.com/healthz |
 
-> The backend runs on Render's free tier, so the first request after a period of inactivity can take
-> 30-60 seconds while the service wakes up. Please wait for it and retry.
+The backend runs on Render's free service, which may spin down while idle. The first request after inactivity can take a while to respond. App data is stored in Supabase PostgreSQL, separately from the Render container.
 
-**Demo accounts** (optional, add if you want reviewers to log in quickly)
-
-| Role | Email | Password |
-|---|---|---|
-| Admin | `<admin email>` | `<password>` |
-| User | `<user email>` | `<password>` |
+Visitors can sign up from the website. Do not publish admin credentials in this README; the initial admin is configured through private Render environment variables.
 
 ## Tech Stack
-- **Backend:** Node.js, Express 5, SQLite (better-sqlite3)
-- **Auth:** JWT (jsonwebtoken) + bcrypt password hashing (bcryptjs)
-- **Frontend:** React 19 (Vite)
-- **Extras:** rate limiting (express-rate-limit), Docker, role-based access control
-- **Hosting:** Render (API), Vercel (frontend)
+
+- **Backend:** Node.js, Express 5, PostgreSQL (`pg` )
+- **Authentication:** JWT and bcrypt password hashing
+- **Frontend:** React and Vite
+- **Other:** `express-rate-limit`, Docker
+- **Hosting:** Render (API), Vercel (frontend), Supabase (PostgreSQL database)
 
 ## Features
+
 - User signup and login with JWT
-- Role-based access (user / admin)
-- Admin CRUD for events (title, description, date/time, venue, capacity, category)
-- Search and filter events
-- Register / unregister for events
-- Duplicate registrations blocked (database UNIQUE constraint + friendly 409 error)
-- Capacity enforced inside a database transaction, so no overbooking
-- Capacity cannot be lowered below the current number of registrations
-- "My registrations" endpoint
-- Secure first-admin bootstrap endpoint (no manual database edits needed in production)
-- Rate limiting: 300 requests / 15 min per IP overall, 10 failed login attempts / 15 min per IP
-- React UI: browse, search, filter, details, register/unregister, my registrations, admin panel
+- Role-based access: regular users and administrators
+- Browse, search, and filter events
+- View event details, register, and unregister
+- Database protection against duplicate registrations
+- Transactional capacity checks to prevent overbooking
+- Event capacity cannot be lowered below current registrations
+- View your own registrations
+- Admin event creation, editing, and deletion
+- Admin-only attendee list showing participant names, emails, and registration times
+- Database migrations run automatically at backend startup
+- `/healthz` endpoint checks the API and database connection
+- API request rate limiting
 
 ## Project Structure
-```
-├─ index.js            server entry
-├─ db.js               SQLite setup and tables
-├─ middleware/         auth (JWT, admin check) and rate limiting
-├─ routes/             auth, events, registrations
-├─ makeadmin.js        local script to promote a user to admin
-├─ frontend/           React app (Vite)
-├─ Dockerfile, docker-compose.yml
-└─ .env.example
+
+```text
+├── index.js                         API entry point and startup sequence
+├── db.js                            PostgreSQL pool, migrations, admin seed
+├── migrate.js                       Run schema migrations manually
+├── makeadmin.js                     Run the configured admin seed manually
+├── migrations/                      Versioned PostgreSQL schema migrations
+├── middleware/                      JWT authentication and rate limiting
+├── routes/                          Authentication, event, and registration APIs
+├── frontend/                        React/Vite website
+├── Dockerfile                       Production container used by Render
+└── .env.example                     Placeholder environment variables
 ```
 
 ## Environment Variables
 
-### Backend (`.env`)
-| Variable | Required | Description |
-|---|---|---|
-| `JWT_SECRET` | Yes | Long random string used to sign tokens |
-| `PORT` | No | Defaults to `3000` (Render sets this automatically) |
-| `ADMIN_EMAIL` | No | Email allowed to become the first admin via `/api/auth/bootstrap-admin` |
-| `DB_DIR` | No | Folder for `events.db` (defaults to the project folder) |
+### Backend — Render or private local `.env`
 
-### Frontend (`frontend/.env`)
+| Variable | Required | Description |
+|---|---:|---|
+| `DATABASE_URL` | Yes | Supabase PostgreSQL **Session pooler** connection string; keep private |
+| `JWT_SECRET` | Yes | Random secret of at least 32 characters for signing tokens |
+| `ADMIN_EMAIL` | For initial admin | Email address for the first administrator |
+| `ADMIN_PASSWORD` | For initial admin | Unique initial admin password, at least 12 characters |
+| `ADMIN_NAME` | No | Initial admin display name; defaults to `Event Administrator` |
+| `PORT` | No | Server port; defaults to `3000` locally and honors Render's assigned port |
+
+The backend runs schema migrations before accepting requests. If the database has no administrator, it creates the initial admin using `ADMIN_EMAIL` and `ADMIN_PASSWORD`. The password is hashed before storage. Existing admin passwords are not overwritten; public signups receive the regular-user role.
+
+Never put `DATABASE_URL`, `JWT_SECRET`, or `ADMIN_PASSWORD` in Vercel, frontend code, GitHub, or this README. Do not commit `.env`.
+
+Generate a JWT secret in PowerShell:
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+### Frontend — Vercel or `frontend/.env`
+
 | Variable | Description |
 |---|---|
-| `VITE_API_URL` | Backend base URL including `/api`, e.g. `https://event-api-qvbb.onrender.com/api`. Defaults to `http://localhost:3000/api` |
+| `VITE_API_URL` | Public backend API base URL, including `/api`; e.g. `https://event-api-qvbb.onrender.com/api` |
+
+Vite includes `VITE_API_URL` in the frontend build, so redeploy the frontend after changing it. This variable is public and must not contain secrets.
 
 ## Local Setup
 
-### 1. Backend
-```bash
-git clone https://github.com/25jaiswalkn-crypto/Event-API.git
-cd Event-API
-npm install
-cp .env.example .env     # on Windows: copy .env.example .env
-node index.js
-```
-The API runs on http://localhost:3000. The SQLite file `events.db` is created automatically.
+A reachable PostgreSQL database is required. Create a private `.env` file from the example and enter your own values:
 
-### 2. Frontend
+```powershell
+Copy-Item .env.example .env
+```
+
+### Backend
+
+From the repository root:
+
+```powershell
+npm ci
+npm start
+```
+
+The API runs at `http://localhost:3000` unless `PORT` is set. On startup, it applies pending migrations and seeds an initial admin if appropriate.
+
+Check the database connection at `http://localhost:3000/healthz`. A healthy response looks like:
+
+```json
+{"ok":true,"database":"connected"}
+```
+
+### Frontend
+
 In a second terminal:
-```bash
+
+```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
-Open http://localhost:5173.
 
-### 3. Create an admin
-
-**Option A: bootstrap endpoint (works locally and in production)**
-1. Set `ADMIN_EMAIL=you@example.com` in `.env` and restart the server.
-2. Register and log in with that email.
-3. Send `POST /api/auth/bootstrap-admin` with your `Authorization: Bearer <token>` header.
-4. Log out and log back in to get a token with the admin role.
-
-This only works for the account matching `ADMIN_EMAIL`, and stops working once any admin exists.
-
-**Option B: local script**
-Edit the email in `makeadmin.js`, then run `node makeadmin.js`. Log in again afterwards.
+Open the Vite URL printed in the terminal, normally `http://localhost:5173`. The frontend defaults to `http://localhost:3000/api` for local requests. Set `VITE_API_URL` if your backend uses a different address.
 
 ## Deployment
 
 ### Backend on Render
-1. Create a new **Web Service** from the GitHub repo.
-2. Build command: `npm install`  |  Start command: `node index.js`
-3. Add environment variables: `JWT_SECRET`, `ADMIN_EMAIL`.
-4. Deploy and copy the service URL.
 
-> **Note:** SQLite stores data in a local file. On Render's free tier the filesystem is ephemeral, so
-> data can reset when the service restarts or redeploys. For persistent data, attach a Render
-> persistent disk and set `DB_DIR` to its mount path.
+Connect the repository's `main` branch to the Render web service. Use the root `Dockerfile`, configure the required backend environment variables under **Render → Event-API → Environment**, and set the health-check path to:
+
+```text
+/healthz
+```
+
+Migrations and the initial admin seed run automatically when the backend starts.
+
+After deployment, visit `https://event-api-qvbb.onrender.com/healthz`. A healthy response includes `"database":"connected"`.
 
 ### Frontend on Vercel
-1. Import the repo in Vercel and set the **Root Directory** to `frontend`.
-2. Add the environment variable `VITE_API_URL` = `https://event-api-qvbb.onrender.com/api`.
-3. Deploy. Redeploy after changing the variable, since Vite reads it at build time.
 
-### Docker (optional)
-```bash
-docker compose up --build
-```
-The API runs on http://localhost:3000 and the database is stored in `./data`.
-Note: the Docker files are provided but have not been tested on the author's machine.
+- **Root Directory:** `frontend`
+- **Build Command:** `npm run build`
+- **Output Directory:** `dist`
+- **Environment Variable:** `VITE_API_URL=https://event-api-qvbb.onrender.com/api`
+
+Redeploy after changing the Vercel environment variable because Vite reads it during the build.
 
 ## API Endpoints
 
+Protected requests use the header `Authorization: Bearer <token>`.
+
 | Method | Endpoint | Access | Description |
-|--------|----------|--------|-------------|
-| POST | /api/auth/register | Public | Create an account |
-| POST | /api/auth/login | Public | Log in, returns JWT |
-| POST | /api/auth/bootstrap-admin | Logged in | Promote the `ADMIN_EMAIL` account to the first admin |
-| GET | /api/events?search=&category= | Public | List/search/filter events |
-| GET | /api/events/:id | Public | Event details |
-| POST | /api/events | Admin | Create event |
-| PUT | /api/events/:id | Admin | Update event |
-| DELETE | /api/events/:id | Admin | Delete event |
-| POST | /api/events/:id/register | User | Register for event |
-| DELETE | /api/events/:id/register | User | Unregister |
-| GET | /api/registrations/me | User | My registered events |
+|---|---|---|---|
+| `GET` | `/healthz` | Public | Check API and PostgreSQL connectivity |
+| `POST` | `/api/auth/register` | Public | Create a regular user account |
+| `POST` | `/api/auth/login` | Public | Log in and receive a JWT |
+| `GET` | `/api/events?search=&category=` | Public | List, search, and filter events |
+| `GET` | `/api/events/:id` | Public | Get event details and registration count |
+| `POST` | `/api/events` | Admin | Create an event |
+| `PUT` | `/api/events/:id` | Admin | Update an event |
+| `DELETE` | `/api/events/:id` | Admin | Delete an event |
+| `GET` | `/api/events/:id/registrations` | Admin | List an event's attendees |
+| `POST` | `/api/events/:id/register` | Signed-in user | Register for an event |
+| `DELETE` | `/api/events/:id/register` | Signed-in user | Unregister from an event |
+| `GET` | `/api/registrations/me` | Signed-in user | List the signed-in user's registrations |
 
-Protected routes need the header: `Authorization: Bearer <token>`
+### Example: Register a user
 
-### Example requests
-
-**Register**
 ```bash
-curl -X POST http://localhost:3000/api/auth/register \
+curl -X POST https://event-api-qvbb.onrender.com/api/auth/register \
   -H "Content-Type: application/json" \
-  -d '{"name":"Asha","email":"asha@example.com","password":"secret123"}'
+  -d '{"name":"Asha","email":"asha@example.com","password":"replace-with-a-strong-password"}'
 ```
 
-**Login**
+### Example: Log in
+
 ```bash
-curl -X POST http://localhost:3000/api/auth/login \
+curl -X POST https://event-api-qvbb.onrender.com/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"asha@example.com","password":"secret123"}'
-# -> { "token": "...", "user": { "id": 1, "name": "Asha", "email": "...", "role": "user" } }
+  -d '{"email":"asha@example.com","password":"replace-with-a-strong-password"}'
 ```
 
-**Create an event (admin)**
+### Example: View an event's attendee list as an admin
+
 ```bash
-curl -X POST http://localhost:3000/api/events \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Intro to Web Dev","description":"Workshop","date_time":"2026-11-20T15:00:00","venue":"Seminar Hall","capacity":50,"category":"Workshop"}'
+curl https://event-api-qvbb.onrender.com/api/events/1/registrations \
+  -H "Authorization: Bearer <admin-jwt>"
 ```
 
-**Register for an event**
-```bash
-curl -X POST http://localhost:3000/api/events/1/register \
-  -H "Authorization: Bearer <token>"
-# -> 201 { "id": 1, "event_id": 1, "message": "registered successfully" }
-```
+Attendee information is personal data. Only admins can access the attendee endpoint. Do not share its output publicly.
 
-## Error Codes
-- 400 validation error, 401 missing/invalid token, 403 not admin
-- 404 not found, 409 duplicate registration or event full, 429 too many requests
+## Database and Data Notes
 
-## Database
-Tables: `users`, `events`, `registrations` (with `UNIQUE(user_id, event_id)` and cascading deletes).
+The PostgreSQL schema contains `users`, `events`, and `registrations`. The migration system records applied files in `schema_migrations`. Add future schema changes as new numbered SQL files; do not edit a migration that has already run in production.
 
-## Design Notes
+A new PostgreSQL database starts empty. This deployment does not copy records from an older SQLite database, so existing events and accounts must be recreated unless they are imported separately from a backup. Once data is in Supabase PostgreSQL, a Render restart or redeploy does not remove it. Free services may sleep or pause, delaying requests; keep backups for important records and review current provider limits.
+
+## Common Error Codes
+
+- `400` — invalid request data
+- `401` — missing or invalid login token
+- `403` — user lacks admin access
+- `404` — event or registration not found
+- `409` — duplicate registration or event capacity reached
+- `429` — rate limit exceeded
+
+## Security Notes
+
 - Passwords are hashed with bcrypt and never returned by the API.
-- Registration (duplicate check, capacity check, insert) runs inside a single SQLite transaction to prevent overbooking.
-- All SQL uses parameterized queries.
-- Admin-only routes pass through `authenticate` then `requireAdmin` middleware.
-
-## Known Limitations
-- No automated tests yet.
-- SQLite is single-file storage; a hosted database would be a better fit for larger scale.
+- SQL statements use parameters.
+- Event capacity is checked inside a transaction.
+- Admin endpoints require a valid JWT and the admin role.
+- The attendee roster does not return password hashes or authentication tokens.
+- Automated test scripts are not yet configured. To check the frontend production build, run `cd frontend` followed by `npm run build`.
