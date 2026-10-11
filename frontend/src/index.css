@@ -406,3 +406,32 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+
+/* ---------- Admin attendee list ---------- */
+.admin-list .actions { gap: 8px; }
+.admin-list .actions .btn { padding: 9px 8px; font-size: 14px; }
+.attendee-panel {
+  grid-column: 1 / -1;
+  padding: 20px;
+  border: 2px solid var(--ink);
+  border-radius: 12px;
+  background: #fff;
+  animation: fade-in 0.2s ease both;
+}
+.attendee-panel h4 { margin: 0 0 14px; font-size: 20px; }
+.attendee-panel p { margin: 0; }
+.attendee-table-wrap { overflow-x: auto; }
+.attendee-table { width: 100%; border-collapse: collapse; text-align: left; }
+.attendee-table th, .attendee-table td { padding: 11px 12px; border-bottom: 1px solid var(--ink); }
+.attendee-table th { font-size: 14px; }
+.attendee-table td { overflow-wrap: anywhere; }
+.attendee-table tbody tr:last-child td { border-bottom: 0; }
+@media (max-width: 900px) {
+  .row-item > .attendee-panel { grid-column: 1 / -1; }
+}
+@media (max-width: 560px) {
+  .admin-list .actions { flex-wrap: wrap; }
+  .attendee-panel { padding: 14px; }
+  .attendee-table th, .attendee-table td { padding: 8px; font-size: 14px; }
+}

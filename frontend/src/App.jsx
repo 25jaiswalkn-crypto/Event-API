@@ -789,6 +789,10 @@ function AdminPage({ token, notify, fail }) {
   const [editId, setEditId] = useState(null);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [attendees, setAttendees] = useState({});
+  const [attendeesOpen, setAttendeesOpen] = useState({});
+  const [attendeesLoading, setAttendeesLoading] = useState({});
+  const [attendeesError, setAttendeesError] = useState({});
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
   const load = useCallback(
@@ -804,6 +808,24 @@ function AdminPage({ token, notify, fail }) {
   useEffect(() => {
     load();
   }, [load]);
+
+  async function toggleAttendees(eventId) {
+    const isOpen = Boolean(attendeesOpen[eventId]);
+    setAttendeesOpen((current) => ({ ...current, [eventId]: !isOpen }));
+    if (isOpen) return;
+
+    setAttendeesLoading((current) => ({ ...current, [eventId]: true }));
+    setAttendeesError((current) => ({ ...current, [eventId]: '' }));
+    try {
+      const rows = await api(`/events/${eventId}/registrations`, { token });
+      setAttendees((current) => ({ ...current, [eventId]: rows }));
+    } catch (err) {
+      const message = fail(err);
+      if (message) setAttendeesError((current) => ({ ...current, [eventId]: message }));
+    } finally {
+      setAttendeesLoading((current) => ({ ...current, [eventId]: false }));
+    }
+  }
 
   function reset() {
     setEditId(null);
@@ -928,7 +950,7 @@ function AdminPage({ token, notify, fail }) {
       {events === null && <Loading label="Loading events" />}
       {events && events.length === 0 && !error && <Empty>No events yet. Create the first one above.</Empty>}
       {events && events.length > 0 && (
-        <div className="list" style={{ borderTop: '2px solid var(--ink)' }}>
+        <div className="list admin-list" style={{ borderTop: '2px solid var(--ink)' }}>
           {events.map((ev) => (
             <div
               className={`row-item${isPast(ev.date_time) ? ' past' : ''}${editId === ev.id ? ' editing' : ''}`}
@@ -948,7 +970,43 @@ function AdminPage({ token, notify, fail }) {
               <div className="actions">
                 <button className="btn gray" onClick={() => startEdit(ev)}>Edit</button>
                 <button className="btn red" onClick={() => remove(ev)}>Delete</button>
+                <button
+                  className="btn gray"
+                  type="button"
+                  aria-expanded={Boolean(attendeesOpen[ev.id])}
+                  onClick={() => toggleAttendees(ev.id)}
+                >
+                  {attendeesOpen[ev.id] ? 'Hide' : 'Attendees'}
+                </button>
               </div>
+              {attendeesOpen[ev.id] && (
+                <div className="attendee-panel" aria-live="polite">
+                  <h4>Registered participants</h4>
+                  {attendeesLoading[ev.id] && <p>Loading participants…</p>}
+                  {attendeesError[ev.id] && <div className="error" role="alert">{attendeesError[ev.id]}</div>}
+                  {!attendeesLoading[ev.id] && !attendeesError[ev.id] && attendees[ev.id]?.length === 0 && (
+                    <p>No one has registered for this event yet.</p>
+                  )}
+                  {attendees[ev.id]?.length > 0 && (
+                    <div className="attendee-table-wrap">
+                      <table className="attendee-table">
+                        <thead>
+                          <tr><th>Name</th><th>Email</th><th>Registered</th></tr>
+                        </thead>
+                        <tbody>
+                          {attendees[ev.id].map((person) => (
+                            <tr key={person.registration_id}>
+                              <td>{person.name}</td>
+                              <td>{person.email}</td>
+                              <td>{new Date(person.registered_at).toLocaleString()}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
