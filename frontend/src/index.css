@@ -126,9 +126,10 @@ nav .hello { font-size: 15px; font-weight: 600; color: var(--muted); padding: 0 
   display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 56px; align-items: start;
 }
 .hero-grid.single { grid-template-columns: minmax(0, 1fr); }
+.hero-copy { align-self: center; }
 .hero h1 {
   font-size: clamp(52px, 10vw, 128px); font-weight: 700;
-  line-height: 0.9; letter-spacing: -0.05em; margin-top: 12px;
+  line-height: 0.9; letter-spacing: -0.05em;
   overflow: hidden; padding: 0.06em 0 0.1em;
 }
 .hero h1 .word { display: inline-block; animation: rise 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
